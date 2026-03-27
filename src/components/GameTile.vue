@@ -21,8 +21,8 @@ const stateClass = computed(() => {
     case 'correct': return 'bg-green-600 text-white border-green-600'
     case 'present': return 'bg-yellow-500 text-white border-yellow-500'
     case 'absent': return 'bg-gray-600 text-white border-gray-600'
-    case 'active': return 'border-gray-400 text-gray-900'
-    default: return 'border-gray-300 text-gray-900'
+    case 'active': return 'border-gray-400 dark:border-gray-400 text-gray-900 dark:text-white'
+    default: return 'border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white'
   }
 })
 

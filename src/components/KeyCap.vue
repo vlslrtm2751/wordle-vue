@@ -35,8 +35,8 @@ const colorClass = computed(() => {
     case 'correct': return 'bg-green-600 text-white'
     case 'present': return 'bg-yellow-500 text-white'
     case 'absent': return 'bg-gray-600 text-white'
-    case 'hint-removed': return 'bg-gray-300 text-gray-400 line-through'
-    default: return 'bg-gray-200 text-gray-900'
+    case 'hint-removed': return 'bg-gray-300 dark:bg-gray-600 text-gray-400 dark:text-gray-500 line-through'
+    default: return 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
   }
 })
 </script>

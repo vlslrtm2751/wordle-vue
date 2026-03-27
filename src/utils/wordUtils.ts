@@ -11,6 +11,10 @@ export function pickAnswer(words: string[]): string {
   return words[index]
 }
 
+export function pickRandomAnswer(words: string[]): string {
+  return words[Math.floor(Math.random() * words.length)]
+}
+
 export function isValidWord(word: string, wordList: string[]): boolean {
   return wordList.includes(word.toUpperCase())
 }

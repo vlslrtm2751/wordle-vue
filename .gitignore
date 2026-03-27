@@ -2,3 +2,19 @@ node_modules/
 dist/
 .DS_Store
 *.local
+
+# Environment variables (may contain secrets)
+.env
+.env.*
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Vite cache
+.vite/
+
+# yarn.lock is redundant — this project uses npm (package-lock.json)
+yarn.lock
+
+# Windows thumbnail cache
+Thumbs.db

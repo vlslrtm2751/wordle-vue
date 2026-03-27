@@ -29,8 +29,8 @@ function getLetters(row: number): string[] {
   return []
 }
 
-watch(() => store.toastMessage, (msg) => {
-  if (msg === 'Not enough letters' || msg === 'Not in word list') {
+watch(() => store.toastKey, (key) => {
+  if (key === 'not_enough_letters' || key === 'not_in_word_list') {
     shakingRow.value = store.currentRow
     setTimeout(() => {
       shakingRow.value = -1
