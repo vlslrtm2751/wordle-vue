@@ -24,6 +24,8 @@ const messages = {
     you_lose: 'Answer: {answer}',
     // General UI
     loading: 'Loading...',
+    tap_to_type: 'Tap to type',
+    typing: 'Typing...',
     reveal_letter: 'Reveal Letter',
     remove_letter: 'Remove Letter',
     reveal_hint_title: 'Fill in the next correct letter',
@@ -59,6 +61,8 @@ const messages = {
     you_lose: '정답: {answer}',
     // General UI
     loading: '로딩 중...',
+    tap_to_type: '탭하여 입력',
+    typing: '입력 중...',
     reveal_letter: '글자 힌트',
     remove_letter: '오답 제거',
     reveal_hint_title: '정답의 다음 글자를 채워줍니다',
