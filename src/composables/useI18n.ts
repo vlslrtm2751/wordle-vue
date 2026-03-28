@@ -14,6 +14,7 @@ const messages = {
     // Toast
     not_enough_letters: 'Not enough letters',
     not_in_word_list: 'Not in word list',
+    no_letters_to_remove: 'No unknown letters left to remove',
     genius: 'Genius!',
     magnificent: 'Magnificent!',
     impressive: 'Impressive!',
@@ -48,6 +49,7 @@ const messages = {
     // Toast
     not_enough_letters: '글자가 부족합니다',
     not_in_word_list: '단어 목록에 없는 단어입니다',
+    no_letters_to_remove: '제거할 수 있는 알파벳이 없습니다',
     genius: '천재!',
     magnificent: '훌륭해요!',
     impressive: '대단해요!',

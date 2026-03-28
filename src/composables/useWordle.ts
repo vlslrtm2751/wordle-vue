@@ -42,15 +42,22 @@ export function useWordle() {
     if (store.isRevealing) return
 
     const keyStates = { ...store.keyStates }
-    const absentLetters = Object.keys(keyStates).filter(k => keyStates[k] === 'absent')
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
-    if (absentLetters.length === 0) {
-      store.setToast('No letters to remove')
+    // Only pick from letters that are still unknown (not yet guessed, not already hint-removed)
+    // AND that are actually not in the answer — so the hint is always truthful and new information
+    const candidates = ALPHABET.filter(letter => {
+      const state = keyStates[letter]
+      if (state !== undefined) return false          // already known (absent/present/correct/hint-removed)
+      return !store.answer.includes(letter)          // not in the answer
+    })
+
+    if (candidates.length === 0) {
+      store.setToast('no_letters_to_remove')
       return
     }
 
-    const randomIdx = Math.floor(Math.random() * absentLetters.length)
-    const letter = absentLetters[randomIdx]
+    const letter = candidates[Math.floor(Math.random() * candidates.length)]
     keyStates[letter] = 'hint-removed'
     store.$patch({ keyStates })
   }
