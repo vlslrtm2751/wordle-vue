@@ -34,10 +34,9 @@
 
     <!-- Main content -->
     <main class="flex-1 flex flex-col items-center justify-between py-4 gap-4">
-      <!-- Game Board — tappable on mobile to open keyboard -->
+      <!-- Game Board — tap to open native keyboard on mobile -->
       <div
         class="flex flex-col items-center gap-4"
-        :class="{ 'cursor-pointer': isMobile }"
         @click="isMobile && focusMobileInput()"
       >
         <GameBoard v-if="initialized" />
@@ -64,40 +63,26 @@
         </div>
       </div>
 
-      <!-- Desktop: custom on-screen keyboard -->
-      <div v-if="!isMobile" class="w-full max-w-lg px-2">
+      <!-- Keyboard — always visible for letter state feedback and tap input -->
+      <div class="w-full max-w-lg px-2">
         <Keyboard @key-press="handleKeyPress" />
       </div>
-
-      <!-- Mobile: native keyboard trigger -->
-      <div v-else class="w-full max-w-lg px-4 pb-2">
-        <!-- Invisible input captures native keyboard input -->
-        <input
-          ref="mobileInputRef"
-          type="text"
-          class="fixed -top-96 left-0 w-px h-px opacity-0"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="characters"
-          spellcheck="false"
-          inputmode="text"
-          @keydown="handleMobileKeydown"
-          @beforeinput="handleMobileBeforeInput"
-          @blur="mobileInputFocused = false"
-          @focus="mobileInputFocused = true"
-        />
-
-        <button
-          class="w-full py-3 rounded-xl border-2 font-medium text-sm transition-colors"
-          :class="mobileInputFocused
-            ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
-            : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300'"
-          @click="focusMobileInput"
-        >
-          ⌨️ {{ mobileInputFocused ? t('typing') : t('tap_to_type') }}
-        </button>
-      </div>
     </main>
+
+    <!-- Hidden input for native keyboard on mobile (focused by tapping game board) -->
+    <input
+      v-if="isMobile"
+      ref="mobileInputRef"
+      type="text"
+      class="fixed -top-96 left-0 w-px h-px opacity-0"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="characters"
+      spellcheck="false"
+      inputmode="text"
+      @beforeinput="handleMobileBeforeInput"
+      @keydown="handleMobileKeydown"
+    />
 
     <ToastMessage :message="store.toastMessage" />
     <ResultModal />
@@ -129,7 +114,6 @@ const { isDark, toggleTheme } = useTheme()
 const { isMobile } = useMobile()
 
 const mobileInputRef = ref<HTMLInputElement | null>(null)
-const mobileInputFocused = ref(false)
 
 useKeyboard()
 
@@ -142,7 +126,7 @@ function focusMobileInput() {
   mobileInputRef.value?.focus()
 }
 
-// Mobile: beforeinput is more reliable than keydown for character input on iOS/Android
+// Use beforeinput for letter input — more reliable on iOS/Android than keydown
 function handleMobileBeforeInput(e: InputEvent) {
   e.preventDefault()
   if (store.gameStatus !== 'playing' || store.isRevealing) return
@@ -151,24 +135,21 @@ function handleMobileBeforeInput(e: InputEvent) {
     const char = e.data.slice(-1).toUpperCase()
     if (/^[A-Z]$/.test(char)) wordle.addLetter(char)
   } else if (e.inputType === 'deleteContentBackward') {
+    // Backspace handled here — do NOT also handle in keydown to avoid double-delete
     wordle.deleteLetter()
   } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
     wordle.submitGuess()
   }
 }
 
-// Mobile: keydown handles Enter/Backspace (some Android keyboards send these reliably)
+// Only handle Enter here — Backspace is already handled in beforeinput above
 function handleMobileKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter') {
     e.preventDefault()
     wordle.submitGuess()
-  } else if (e.key === 'Backspace') {
-    e.preventDefault()
-    wordle.deleteLetter()
   }
 }
 
-// Desktop keyboard (via on-screen QWERTY)
 function handleKeyPress(key: string) {
   if (key === 'ENTER') {
     wordle.submitGuess()
