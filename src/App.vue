@@ -81,7 +81,7 @@
       spellcheck="false"
       inputmode="text"
       @beforeinput="handleMobileBeforeInput"
-      @keydown="handleMobileKeydown"
+      @keydown.stop="handleMobileKeydown"
     />
 
     <ToastMessage :message="store.toastMessage" />
