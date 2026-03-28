@@ -1,5 +1,5 @@
 export async function fetchWords(): Promise<string[]> {
-  const response = await fetch('/words.json')
+  const response = await fetch(`${import.meta.env.BASE_URL}words.json`)
   const words: string[] = await response.json()
   return words.filter(w => w.length === 5)
 }
