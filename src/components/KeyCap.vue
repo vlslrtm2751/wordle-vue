@@ -1,7 +1,11 @@
 <template>
+  <!-- Keys are flex units, never fixed pixels, so a row can never be wider
+       than the viewport. Wide keys take 1.5 units. -->
   <button
-    class="h-14 rounded font-bold text-sm uppercase cursor-pointer select-none transition-colors"
-    :class="[widthClass, colorClass]"
+    class="basis-0 min-w-0 select-none overflow-hidden rounded px-0.5 font-bold uppercase leading-none transition-colors"
+    :class="[wide ? 'grow-[1.5]' : 'grow', colorClass, fontClass]"
+    :style="{ height: 'var(--key-h)' }"
+    :aria-label="label"
     @click="$emit('key-press', label)"
   >
     {{ displayLabel }}
@@ -26,9 +30,12 @@ const displayLabel = computed(() => {
   return props.label
 })
 
-const widthClass = computed(() => {
-  return props.wide ? 'px-3 min-w-[4rem]' : 'w-10'
-})
+// ENTER carries five characters in a 1.5-unit key, so it needs a smaller ramp.
+const fontClass = computed(() =>
+  props.label === 'ENTER'
+    ? 'text-[clamp(0.5rem,2.3vw,0.72rem)]'
+    : 'text-[clamp(0.7rem,3.4vw,0.95rem)]'
+)
 
 const colorClass = computed(() => {
   switch (props.state) {

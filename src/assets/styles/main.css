@@ -2,6 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  /* The app is a fixed-size shell: it must never scroll on either axis.
+     Every region below sizes itself to the space that is actually available. */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  #app {
+    height: 100vh; /* fallback for browsers without dvh */
+    height: 100dvh; /* excludes mobile browser chrome */
+    overflow: hidden;
+  }
+
+  button {
+    touch-action: manipulation; /* no double-tap zoom delay on keys */
+  }
+
+  :root {
+    /* Shared spacing between tiles and keys. */
+    --gap: 4px;
+    /* Key height shrinks on short viewports so the board keeps usable space. */
+    --key-h: clamp(2.05rem, 6.2dvh, 3.4rem);
+  }
+}
+
 @keyframes flip-in {
   0% { transform: rotateX(0); }
   50% { transform: rotateX(-90deg); }

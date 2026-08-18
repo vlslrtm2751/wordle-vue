@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>visual</title>
+<style>
+ body{margin:0;padding:12px;background:#e5e7eb;font:12px system-ui;display:flex;gap:14px;align-items:flex-start}
+ figure{margin:0}
+ figcaption{text-align:center;padding:4px;font-weight:600}
+ iframe{border:2px solid #374151;display:block;background:#fff}
+</style></head><body>
+<script>
+// Last entry simulates the phone keyboard covering the bottom of the screen. It
+// has to start full height so the app records a baseline to shrink away from.
+const SIZES=[[320,568,'320x568'],[375,667,'375x667'],[390,844,'390x844'],[430,932,'430x932'],[390,844,'390x844 + native kb']];
+const made=[];
+for(const [w,h,label] of SIZES){
+  const fig=document.createElement('figure');
+  const cap=document.createElement('figcaption'); cap.textContent=label;
+  const f=document.createElement('iframe'); f.width=w; f.height=h; f.src='/wordle-vue/';
+  fig.appendChild(cap); fig.appendChild(f); document.body.appendChild(fig);
+  made.push(f);
+}
+// Shrink the last frame once it has settled, then hand-deliver the resize event
+// (Chrome fires none for an iframe resized by its parent).
+setTimeout(()=>{
+  const f=made[made.length-1];
+  f.style.height='400px'; f.height=400;
+  f.contentWindow.visualViewport.dispatchEvent(new Event('resize'));
+}, 6000);
+</script></body></html>

@@ -1,9 +1,9 @@
 <template>
   <div
     v-if="store.gameStatus !== 'playing'"
-    class="fixed inset-0 bg-black/50 flex items-center justify-center z-40"
+    class="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4"
   >
-    <div class="bg-white dark:bg-gray-800 rounded-xl p-8 max-w-sm w-full mx-4 text-center shadow-xl transition-colors">
+    <div class="max-h-[85dvh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-xl bg-white p-6 text-center shadow-xl transition-colors dark:bg-gray-800">
       <h2 class="text-2xl font-bold mb-2 text-gray-900 dark:text-white">
         {{ store.gameStatus === 'won' ? t('you_won') : t('game_over') }}
       </h2>

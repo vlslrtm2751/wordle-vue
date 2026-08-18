@@ -1,7 +1,11 @@
 <template>
+  <!-- Width comes from the row (flex-1), height from the row's own height, so
+       the tile stays square without any fixed pixel size. -->
   <div
-    class="w-14 h-14 border-2 flex items-center justify-center text-2xl font-bold uppercase select-none"
+    data-tile
+    class="flex h-full min-w-0 flex-1 select-none items-center justify-center border-2 font-bold uppercase leading-none"
     :class="[stateClass, animationClass]"
+    :style="{ fontSize: 'clamp(0.75rem, min(6.5vw, 3.6dvh), 1.75rem)' }"
   >
     {{ letter }}
   </div>

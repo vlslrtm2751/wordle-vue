@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>mobile layout test</title>
+  <style>
+    body { font: 12px/1.5 ui-monospace, monospace; margin: 0; padding: 10px; background: #fff; color: #111; }
+    #out { white-space: pre; }
+    .pass { color: #0a7d28; } .fail { color: #c00; font-weight: bold; }
+    iframe { border: 1px solid #bbb; display: block; margin: 6px 0; }
+    #frames { opacity: .35; }
+  </style>
+</head>
+<body>
+<div id="out">running…</div>
+<div id="frames"></div>
+<script>
+// Headless layout regression test: the app must never scroll on any axis,
+// and every interactive element must sit fully inside the viewport.
+const SIZES = [
+  [320, 568, 'iPhone SE (1st)'],
+  [360, 640, 'Galaxy S5 / A-series'],
+  [375, 667, 'iPhone SE (2/3)'],
+  [390, 844, 'iPhone 13 / 14'],
+  [412, 915, 'Pixel 7'],
+  [430, 932, 'iPhone 15 Pro Max'],
+  [667, 375, 'iPhone SE landscape'],
+  [844, 390, 'iPhone 14 landscape'],
+]
+
+const out = document.getElementById('out')
+const frames = document.getElementById('frames')
+const lines = []
+let failures = 0
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function waitForApp(doc, timeout = 25000) {
+  const deadline = performance.now() + timeout
+  while (performance.now() < deadline) {
+    // 3 header buttons + 2 hint buttons + 28 keys = 33
+    if (doc.querySelectorAll('button').length >= 33) return true
+    await sleep(100)
+  }
+  return false
+}
+
+function check(label, ok, detail) {
+  if (!ok) failures++
+  lines.push(`   ${ok ? '[ok]  ' : '[FAIL]'} ${label}${detail ? ' — ' + detail : ''}`)
+}
+
+;(async () => {
+  // Warm the dev server first: the very first cold-start transform can take
+  // longer than a measurement window and would report a false failure.
+  const warm = document.createElement('iframe')
+  warm.style.cssText = 'width:390px;height:844px'
+  warm.src = '/wordle-vue/'
+  frames.appendChild(warm)
+  await new Promise((r) => { warm.onload = r; setTimeout(r, 25000) })
+  await waitForApp(warm.contentDocument, 25000)
+  warm.remove()
+
+  for (const [w, h, name] of SIZES) {
+    const f = document.createElement('iframe')
+    f.style.width = w + 'px'
+    f.style.height = h + 'px'
+    f.src = '/wordle-vue/'
+    frames.appendChild(f)
+    await new Promise((r) => { f.onload = r; setTimeout(r, 20000) })
+
+    const doc = f.contentDocument
+    const ready = await waitForApp(doc)
+    await sleep(300)
+
+    lines.push(`${name}  ${w}x${h}`)
+    if (!ready) {
+      failures++
+      lines.push('   [FAIL] app never finished mounting')
+      out.innerHTML = render()
+      continue
+    }
+
+    const de = doc.documentElement
+    const xOver = de.scrollWidth - de.clientWidth
+    const yOver = de.scrollHeight - de.clientHeight
+    check('no horizontal page scroll', xOver <= 0, `scrollW=${de.scrollWidth} clientW=${de.clientWidth} over=${xOver}`)
+    check('no vertical page scroll', yOver <= 0, `scrollH=${de.scrollHeight} clientH=${de.clientHeight} over=${yOver}`)
+
+    // Every button (keys, hints, header) must be fully inside the viewport.
+    const EPS = 0.5
+    let worst = null
+    for (const el of doc.querySelectorAll('button')) {
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 && r.height === 0) continue
+      const outBy = Math.max(-r.left, -r.top, r.right - w, r.bottom - h)
+      if (outBy > EPS && (!worst || outBy > worst.by)) {
+        worst = { by: outBy, text: (el.textContent || '').trim().slice(0, 10) }
+      }
+    }
+    check('all buttons inside viewport', !worst,
+      worst ? `"${worst.text}" clipped by ${worst.by.toFixed(1)}px` : `${doc.querySelectorAll('button').length} buttons`)
+
+    // All 30 board tiles must be fully inside the viewport.
+    const tiles = doc.querySelectorAll('[data-tile]')
+    let tileWorst = null
+    for (const el of tiles) {
+      const r = el.getBoundingClientRect()
+      const outBy = Math.max(-r.left, -r.top, r.right - w, r.bottom - h)
+      if (outBy > EPS && (!tileWorst || outBy > tileWorst)) tileWorst = outBy
+    }
+    check('all 30 tiles inside viewport', tiles.length === 30 && !tileWorst,
+      tiles.length !== 30 ? `found ${tiles.length} tiles (expected 30)` :
+      tileWorst ? `clipped by ${tileWorst.toFixed(1)}px` : '30 tiles')
+
+    // Tiles should stay roughly square.
+    const t0 = tiles[0] && tiles[0].getBoundingClientRect()
+    if (t0 && t0.width) {
+      const ratio = t0.width / t0.height
+      check('tiles are square', Math.abs(ratio - 1) < 0.06, `${t0.width.toFixed(1)}x${t0.height.toFixed(1)} (ratio ${ratio.toFixed(3)})`)
+    }
+
+    out.innerHTML = render()
+  }
+  lines.push('')
+  lines.push(failures === 0 ? 'RESULT: ALL PASS' : `RESULT: ${failures} FAILURE(S)`)
+  out.innerHTML = render()
+  document.title = failures === 0 ? 'ALL PASS' : failures + ' FAILURES'
+})()
+
+function render() {
+  return lines
+    .map((l) => l.includes('[FAIL]') ? `<span class="fail">${l}</span>`
+              : l.includes('[ok]') ? `<span class="pass">${l}</span>` : l)
+    .join('\n')
+}
+</script>
+</body>
+</html>

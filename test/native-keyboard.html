@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>native keyboard test</title>
+  <style>
+    body { font: 12px/1.5 ui-monospace, monospace; margin: 0; padding: 10px; background: #fff; color: #111; }
+    #out { white-space: pre; }
+    .pass { color: #0a7d28; } .fail { color: #c00; font-weight: bold; }
+    iframe { border: 1px solid #bbb; display: block; margin: 6px 0; }
+    #frames { opacity: .35; }
+  </style>
+</head>
+<body>
+<div id="out">running…</div>
+<div id="frames"></div>
+<script>
+/*
+ * Covers the phone-keyboard path. Must be run with a coarse pointer emulated
+ * (--blink-settings=availablePointerTypes=2,primaryPointerType=2) or the app
+ * correctly decides it is on a desktop and never renders the hidden input.
+ *
+ * Shrinking the iframe stands in for the native keyboard claiming the bottom of
+ * the screen. Chrome updates the frame's visualViewport.height but fires no
+ * resize event for an iframe resized by its parent, so the test dispatches the
+ * event itself; the handler still reads the real, already-updated viewport.
+ */
+const W = 390, TALL = 844, SHORT = 400
+
+const out = document.getElementById('out')
+const frames = document.getElementById('frames')
+const lines = []
+let failures = 0
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function check(label, ok, detail) {
+  if (!ok) failures++
+  lines.push(`   ${ok ? '[ok]  ' : '[FAIL]'} ${label}${detail ? ' — ' + detail : ''}`)
+  out.innerHTML = render()
+}
+
+function section(t) { lines.push(t); out.innerHTML = render() }
+
+const q = (doc, sel) => doc.querySelector(sel)
+const strip = (doc) => q(doc, '[role="group"][aria-label="Letter status"]')
+const fullKeyboard = (doc) => q(doc, 'button[aria-label="Q"]')
+const hiddenInput = (doc) => q(doc, 'input[enterkeyhint="go"]')
+
+// Letters currently shown in the active board row.
+function rowText(doc, row) {
+  const tiles = doc.querySelectorAll('[data-tile]')
+  let s = ''
+  for (let i = row * 5; i < row * 5 + 5; i++) s += (tiles[i].textContent || '').trim()
+  return s
+}
+
+function fireBeforeInput(el, inputType, data) {
+  el.dispatchEvent(new el.ownerDocument.defaultView.InputEvent('beforeinput', {
+    inputType, data: data ?? null, bubbles: true, cancelable: true,
+  }))
+}
+
+function fireKeydown(el, key) {
+  el.dispatchEvent(new el.ownerDocument.defaultView.KeyboardEvent('keydown', {
+    key, bubbles: true, cancelable: true,
+  }))
+}
+
+async function waitForApp(doc, timeout = 25000) {
+  const deadline = performance.now() + timeout
+  while (performance.now() < deadline) {
+    if (doc.querySelectorAll('[data-tile]').length === 30) return true
+    await sleep(100)
+  }
+  return false
+}
+
+;(async () => {
+  const f = document.createElement('iframe')
+  f.style.width = W + 'px'
+  f.style.height = TALL + 'px'
+  f.src = '/wordle-vue/'
+  frames.appendChild(f)
+  await new Promise((r) => { f.onload = r; setTimeout(r, 25000) })
+  const doc = f.contentDocument
+  if (!(await waitForApp(doc))) {
+    lines.push('[FAIL] app never mounted'); failures++
+    out.innerHTML = render(); document.title = '1 FAILURES'; return
+  }
+  await sleep(400)
+
+  section('coarse-pointer detection')
+  check('hidden native-keyboard input is rendered', !!hiddenInput(doc))
+  check('full on-screen keyboard is shown by default', !!fullKeyboard(doc))
+  check('status strip is hidden by default', !strip(doc))
+
+  section('typing through the native keyboard bridge')
+  const input = hiddenInput(doc)
+  if (input) {
+    input.focus()
+    fireBeforeInput(input, 'insertText', 'c')
+    fireBeforeInput(input, 'insertText', 'r')
+    fireBeforeInput(input, 'insertText', 'a')
+    await sleep(150)
+    check('insertText fills the row', rowText(doc, 0) === 'CRA', `row = "${rowText(doc, 0)}"`)
+
+    // A keyboard that reports a real key fires BOTH keydown and beforeinput for
+    // one press — the bug that shipped twice was this deleting two letters.
+    fireKeydown(input, 'Backspace')
+    fireBeforeInput(input, 'deleteContentBackward')
+    await sleep(150)
+    check('keydown+beforeinput backspace deletes exactly one', rowText(doc, 0) === 'CR', `row = "${rowText(doc, 0)}"`)
+
+    // An IME-only keyboard sends beforeinput with no usable keydown.
+    fireBeforeInput(input, 'deleteContentBackward')
+    await sleep(150)
+    check('beforeinput-only backspace still deletes one', rowText(doc, 0) === 'C', `row = "${rowText(doc, 0)}"`)
+
+    check('input keeps its sentinel value', input.value.length > 0, `value length = ${input.value.length}`)
+  }
+
+  section('native keyboard opens (viewport shrinks to ' + SHORT + 'px)')
+  f.style.height = SHORT + 'px'
+  f.contentWindow.visualViewport.dispatchEvent(new Event('resize'))
+  await sleep(700)
+  check('status strip replaces the on-screen keyboard', !!strip(doc) && !fullKeyboard(doc),
+    `strip=${!!strip(doc)} fullKeyboard=${!!fullKeyboard(doc)}`)
+
+  const de = doc.documentElement
+  check('no horizontal scroll while keyboard is open', de.scrollWidth - de.clientWidth <= 0,
+    `over=${de.scrollWidth - de.clientWidth}`)
+  check('no vertical scroll while keyboard is open', de.scrollHeight - de.clientHeight <= 0,
+    `over=${de.scrollHeight - de.clientHeight}`)
+
+  let clipped = null
+  for (const el of doc.querySelectorAll('[data-tile]')) {
+    const r = el.getBoundingClientRect()
+    const by = Math.max(-r.left, -r.top, r.right - W, r.bottom - SHORT)
+    if (by > 0.5 && (!clipped || by > clipped)) clipped = by
+  }
+  check('all 30 tiles still fully visible', !clipped, clipped ? `clipped by ${clipped.toFixed(1)}px` : '30 tiles')
+
+  const t0 = doc.querySelector('[data-tile]').getBoundingClientRect()
+  check('tiles stay square while keyboard is open', Math.abs(t0.width / t0.height - 1) < 0.06,
+    `${t0.width.toFixed(1)}x${t0.height.toFixed(1)}`)
+
+  section('native keyboard closes (viewport restored)')
+  f.style.height = TALL + 'px'
+  f.contentWindow.visualViewport.dispatchEvent(new Event('resize'))
+  await sleep(700)
+  check('on-screen keyboard comes back', !!fullKeyboard(doc) && !strip(doc),
+    `strip=${!!strip(doc)} fullKeyboard=${!!fullKeyboard(doc)}`)
+
+  lines.push('')
+  lines.push(failures === 0 ? 'RESULT: ALL PASS' : `RESULT: ${failures} FAILURE(S)`)
+  out.innerHTML = render()
+  document.title = failures === 0 ? 'ALL PASS' : failures + ' FAILURES'
+})()
+
+function render() {
+  return lines
+    .map((l) => l.includes('[FAIL]') ? `<span class="fail">${l}</span>`
+              : l.includes('[ok]') ? `<span class="pass">${l}</span>` : l)
+    .join('\n')
+}
+</script>
+</body>
+</html>

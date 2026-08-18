@@ -1,5 +1,9 @@
 <template>
-  <div class="flex gap-1" :class="{ 'row-shake': isShaking }">
+  <div
+    class="flex min-h-0 flex-1 justify-center"
+    :class="{ 'row-shake': isShaking }"
+    :style="{ gap: 'var(--gap)' }"
+  >
     <GameTile
       v-for="i in 5"
       :key="i"
