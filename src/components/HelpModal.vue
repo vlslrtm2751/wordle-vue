@@ -2,10 +2,10 @@
   <Transition name="modal">
     <div
       v-if="modelValue"
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       @click.self="$emit('update:modelValue', false)"
     >
-      <div class="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-sm w-full mx-4 shadow-xl transition-colors">
+      <div class="max-h-[85dvh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-xl bg-white p-5 shadow-xl transition-colors dark:bg-gray-800">
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-xl font-bold tracking-wide text-gray-900 dark:text-white">{{ t('help_title') }}</h2>
           <button
