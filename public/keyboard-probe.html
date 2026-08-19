@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="robots" content="noindex" />
+<title>Soft Keyboard Probe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+/>
+
+<style>
+  /* Palette borrows the game's own tile semantics: green = signal arrived,
+     amber = arrived but not in the form we handle, grey = silence. */
+  :root {
+    --ground: #f3f5f3;
+    --panel: #ffffff;
+    --panel-2: #ecefec;
+    --line: #dbe1dc;
+    --ink: #131a15;
+    --muted: #5a655c;
+    --correct: #15803d;
+    --present: #a16207;
+    --absent: #6b7280;
+    --absent-soft: #9aa3a8;
+
+    --step: clamp(1rem, 3.5vw, 1.35rem);
+    --radius: 10px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --ground: #0e1310;
+      --panel: #161d18;
+      --panel-2: #1d251f;
+      --line: #2a342d;
+      --ink: #e8ede9;
+      --muted: #94a098;
+      --correct: #4ade80;
+      --present: #fbbf24;
+      --absent: #94a3b8;
+      --absent-soft: #64748b;
+    }
+  }
+
+  :root[data-theme='dark'] {
+    --ground: #0e1310;
+    --panel: #161d18;
+    --panel-2: #1d251f;
+    --line: #2a342d;
+    --ink: #e8ede9;
+    --muted: #94a098;
+    --correct: #4ade80;
+    --present: #fbbf24;
+    --absent: #94a3b8;
+    --absent-soft: #64748b;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .wrap {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 1.25rem 0.9rem 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  h1 {
+    font-size: clamp(1.5rem, 6vw, 2rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .lede {
+    margin: 0;
+    color: var(--muted);
+    max-width: 34rem;
+  }
+
+  /* --- live readout, pinned so it stays visible with the keyboard up ------- */
+  .live {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.7rem 0.8rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+    gap: 0.55rem 0.9rem;
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.06);
+  }
+
+  .metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+
+  .metric-label {
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .metric-value {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.92rem;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chip {
+    display: inline-block;
+    align-self: flex-start;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.1rem 0.45rem;
+    border-radius: 5px;
+    color: #fff;
+    background: var(--absent);
+  }
+  .chip.on {
+    background: var(--correct);
+    color: #04140a;
+  }
+
+  /* --- step panels -------------------------------------------------------- */
+  section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+
+  .eyebrow {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .eyebrow b {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    color: var(--correct);
+    font-size: 0.8rem;
+  }
+
+  h2 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+
+  .hint {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .targets {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  /* Deliberately three different element kinds — iOS Safari does not always
+     deliver click to a plain div, which would strand the whole tap-to-type
+     flow before any keyboard code runs. */
+  .tap {
+    min-height: 52px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    background: var(--panel-2);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0 0.75rem;
+    width: 100%;
+    text-align: left;
+  }
+  .tap.pointer {
+    cursor: pointer;
+  }
+
+  .tap .flags {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .tap .flags .hit {
+    color: var(--correct);
+    font-weight: 700;
+  }
+
+  button.act {
+    min-height: 52px;
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-2);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.92rem;
+    font-weight: 600;
+    text-align: left;
+    padding: 0.55rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    cursor: pointer;
+  }
+  button.act:active {
+    background: var(--line);
+  }
+  button.act .sub {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  button.act .verdict {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.72rem;
+    font-weight: 700;
+  }
+  .v-ok {
+    color: var(--correct);
+  }
+  .v-partial {
+    color: var(--present);
+  }
+  .v-none {
+    color: var(--absent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--correct);
+    outline-offset: 2px;
+  }
+
+  /* --- the probed inputs -------------------------------------------------- */
+  /* A: byte-for-byte what the app ships today. */
+  #inA {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    font-size: 16px;
+  }
+  /* B: same hiding trick, but nothing that could deter focus. */
+  #inB {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    font-size: 16px;
+  }
+  /* C: a real touch-sized box that is merely almost invisible. */
+  #inC {
+    position: fixed;
+    left: 50%;
+    top: 45%;
+    width: 48px;
+    height: 48px;
+    opacity: 0.01;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    font-size: 16px;
+  }
+  /* D: control — an ordinary visible field. */
+  #inD {
+    width: 100%;
+    min-height: 48px;
+    font-size: 16px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    padding: 0 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-2);
+    color: var(--ink);
+  }
+
+  /* --- event log ---------------------------------------------------------- */
+  .logwrap {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-2);
+    overflow: hidden;
+  }
+
+  #log {
+    margin: 0;
+    padding: 0.55rem 0.65rem;
+    max-height: 46vh;
+    overflow-y: auto;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.72rem;
+    line-height: 1.65;
+    white-space: pre;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .row-t {
+    color: var(--absent-soft);
+  }
+  .row-ok {
+    color: var(--correct);
+    font-weight: 700;
+  }
+  .row-warn {
+    color: var(--present);
+    font-weight: 700;
+  }
+  .row-dim {
+    color: var(--muted);
+  }
+
+  .btnrow {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .btnrow button {
+    flex: 1;
+    min-height: 46px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  #dump {
+    width: 100%;
+    min-height: 7rem;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.7rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel-2);
+    color: var(--ink);
+    padding: 0.5rem;
+    display: none;
+  }
+
+  footer {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    word-break: break-all;
+  }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Soft Keyboard Probe</h1>
+    <p class="lede">
+      Find out where tap-to-type breaks on this phone. Work down the three steps
+      and watch the log at the bottom — each step reports whether the signal got
+      through.
+    </p>
+  </header>
+
+  <div class="live">
+    <div class="metric">
+      <span class="metric-label">Keyboard</span>
+      <span class="chip" id="kbChip">CLOSED</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Visible height</span>
+      <span class="metric-value" id="mVv">–</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Window height</span>
+      <span class="metric-value" id="mWin">–</span>
+    </div>
+    <div class="metric">
+      <span class="metric-label">Focused element</span>
+      <span class="metric-value" id="mActive">–</span>
+    </div>
+  </div>
+
+  <section>
+    <div class="eyebrow"><b>01</b><span>Does the tap even land?</span></div>
+    <h2>Tap each of the three bars</h2>
+    <p class="hint">
+      The game opens the keyboard from a tap on the board, which is a plain
+      <code>div</code>. If <code>click</code> lights up on the button but not on
+      the plain div, that alone explains everything.
+    </p>
+    <div class="targets">
+      <div class="tap" id="tapDiv">
+        <span>Plain div</span
+        ><span class="flags" id="fDiv">down · touch · click</span>
+      </div>
+      <div class="tap pointer" id="tapDivPtr">
+        <span>Div with cursor:pointer</span
+        ><span class="flags" id="fDivPtr">down · touch · click</span>
+      </div>
+      <button class="tap pointer" id="tapBtn" type="button">
+        <span>Real button</span
+        ><span class="flags" id="fBtn">down · touch · click</span>
+      </button>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow"><b>02</b><span>Does the keyboard come up?</span></div>
+    <h2>Focus each hidden field</h2>
+    <p class="hint">
+      Tap a variant, then wait a second. Each reports whether it took focus and
+      whether the keyboard actually appeared.
+    </p>
+    <button class="act" id="btnA" type="button">
+      <span>Variant A — exactly what the game ships</span>
+      <span class="sub">1×1px · opacity 0 · pointer-events none · aria-hidden · tabindex -1</span>
+      <span class="verdict v-none" id="vA">not tried</span>
+    </button>
+    <button class="act" id="btnB" type="button">
+      <span>Variant B — same, nothing that deters focus</span>
+      <span class="sub">1×1px · opacity 0</span>
+      <span class="verdict v-none" id="vB">not tried</span>
+    </button>
+    <button class="act" id="btnC" type="button">
+      <span>Variant C — touch-sized, near-invisible</span>
+      <span class="sub">48×48px · opacity 0.01</span>
+      <span class="verdict v-none" id="vC">not tried</span>
+    </button>
+    <button class="act" id="btnD" type="button">
+      <span>Variant D — ordinary visible field (control)</span>
+      <span class="sub">if this one fails, nothing else will work either</span>
+      <span class="verdict v-none" id="vD">not tried</span>
+    </button>
+    <input
+      id="inD"
+      type="text"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="characters"
+      spellcheck="false"
+      inputmode="text"
+      enterkeyhint="go"
+      placeholder="type here for variant D"
+    />
+  </section>
+
+  <section>
+    <div class="eyebrow"><b>03</b><span>What does typing produce?</span></div>
+    <h2>Type A, B, C then backspace</h2>
+    <p class="hint">
+      With a variant focused, type three letters and hit backspace twice. The log
+      shows every event the keyboard produced, with the exact
+      <code>inputType</code> the game keys off.
+    </p>
+    <div class="logwrap"><div id="log"></div></div>
+    <div class="btnrow">
+      <button id="btnCopy" type="button">Copy log</button>
+      <button id="btnClear" type="button">Clear</button>
+    </div>
+    <textarea id="dump" readonly aria-label="Log text for copying"></textarea>
+  </section>
+
+  <footer id="env">–</footer>
+</div>
+
+<input
+  id="inA"
+  type="text"
+  value="&nbsp;&nbsp;&nbsp;&nbsp;"
+  autocomplete="off"
+  autocorrect="off"
+  autocapitalize="characters"
+  spellcheck="false"
+  inputmode="text"
+  enterkeyhint="go"
+  aria-hidden="true"
+  tabindex="-1"
+/>
+<input
+  id="inB"
+  type="text"
+  value="&nbsp;&nbsp;&nbsp;&nbsp;"
+  autocomplete="off"
+  autocorrect="off"
+  autocapitalize="characters"
+  spellcheck="false"
+  inputmode="text"
+  enterkeyhint="go"
+/>
+<input
+  id="inC"
+  type="text"
+  value="&nbsp;&nbsp;&nbsp;&nbsp;"
+  autocomplete="off"
+  autocorrect="off"
+  autocapitalize="characters"
+  spellcheck="false"
+  inputmode="text"
+  enterkeyhint="go"
+/>
+
+<script>
+  (function () {
+    'use strict'
+
+    var logEl = document.getElementById('log')
+    var lines = []
+    var MAX = 500
+    var t0 = Date.now()
+
+    function stamp() {
+      var ms = Date.now() - t0
+      return (ms / 1000).toFixed(2).padStart(7, ' ')
+    }
+
+    function log(msg, level) {
+      var line = stamp() + '  ' + msg
+      lines.push(line)
+      if (lines.length > MAX) lines.shift()
+      var div = document.createElement('div')
+      div.className = level ? 'row-' + level : 'row-dim'
+      div.textContent = line
+      logEl.appendChild(div)
+      while (logEl.childNodes.length > MAX) logEl.removeChild(logEl.firstChild)
+      logEl.scrollTop = logEl.scrollHeight
+    }
+
+    /* ---- environment ---------------------------------------------------- */
+    var coarse = window.matchMedia('(pointer: coarse)').matches
+    var hasVV = !!window.visualViewport
+    document.getElementById('env').textContent =
+      'pointer:coarse=' + coarse + ' · visualViewport=' + hasVV +
+      ' · touch=' + ('ontouchstart' in window) +
+      ' · dpr=' + window.devicePixelRatio + '\n' + navigator.userAgent
+
+    log('probe ready — coarse=' + coarse + ' visualViewport=' + hasVV, 'ok')
+    if (!coarse) {
+      log('WARNING: pointer:coarse is false, the game would not render the hidden input here', 'warn')
+    }
+
+    /* ---- viewport / keyboard watch --------------------------------------- */
+    var mVv = document.getElementById('mVv')
+    var mWin = document.getElementById('mWin')
+    var mActive = document.getElementById('mActive')
+    var kbChip = document.getElementById('kbChip')
+
+    var baseline = 0
+    var kbOpen = false
+
+    function vvHeight() {
+      return window.visualViewport ? window.visualViewport.height : window.innerHeight
+    }
+
+    function syncViewport(why) {
+      var h = vvHeight()
+      if (h > baseline) baseline = h
+      var was = kbOpen
+      kbOpen = baseline - h > 150
+      mVv.textContent = Math.round(h) + ' / ' + Math.round(baseline)
+      mWin.textContent = window.innerHeight + 'px'
+      kbChip.textContent = kbOpen ? 'OPEN' : 'CLOSED'
+      kbChip.className = 'chip' + (kbOpen ? ' on' : '')
+      if (was !== kbOpen) {
+        log(
+          'keyboard ' + (kbOpen ? 'OPENED' : 'closed') +
+            ' (visible ' + Math.round(h) + ' of ' + Math.round(baseline) + ', via ' + why + ')',
+          kbOpen ? 'ok' : 'dim'
+        )
+      }
+    }
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', function () {
+        syncViewport('visualViewport.resize')
+      })
+      window.visualViewport.addEventListener('scroll', function () {
+        syncViewport('visualViewport.scroll')
+      })
+    }
+    window.addEventListener('resize', function () {
+      syncViewport('window.resize')
+    })
+    syncViewport('init')
+
+    setInterval(function () {
+      var a = document.activeElement
+      mActive.textContent = a ? (a.id || a.tagName.toLowerCase()) : 'none'
+      syncViewport('poll')
+    }, 300)
+
+    /* ---- step 1: which tap events actually fire -------------------------- */
+    function watchTaps(el, flagsEl, label) {
+      var seen = { down: false, touch: false, click: false }
+      function paint() {
+        flagsEl.innerHTML =
+          (seen.down ? '<span class="hit">down</span>' : 'down') + ' · ' +
+          (seen.touch ? '<span class="hit">touch</span>' : 'touch') + ' · ' +
+          (seen.click ? '<span class="hit">click</span>' : 'click')
+      }
+      el.addEventListener('pointerdown', function () {
+        seen.down = true
+        paint()
+        log(label + ': pointerdown', 'dim')
+      })
+      el.addEventListener('touchend', function () {
+        seen.touch = true
+        paint()
+        log(label + ': touchend', 'dim')
+      })
+      // Deliberately addEventListener, matching how Vue binds @click.
+      el.addEventListener('click', function () {
+        seen.click = true
+        paint()
+        log(label + ': click FIRED', 'ok')
+      })
+      paint()
+    }
+
+    watchTaps(document.getElementById('tapDiv'), document.getElementById('fDiv'), 'plain div')
+    watchTaps(document.getElementById('tapDivPtr'), document.getElementById('fDivPtr'), 'div cursor:pointer')
+    watchTaps(document.getElementById('tapBtn'), document.getElementById('fBtn'), 'button')
+
+    /* ---- step 2 + 3: focus each variant and log everything it emits ------- */
+    var SENTINEL = '    '
+
+    function describe(e) {
+      var bits = []
+      if ('inputType' in e) bits.push('inputType=' + e.inputType)
+      if ('data' in e && e.data !== null && e.data !== undefined) bits.push('data=' + JSON.stringify(e.data))
+      if ('key' in e) bits.push('key=' + JSON.stringify(e.key))
+      if ('keyCode' in e && e.keyCode) bits.push('keyCode=' + e.keyCode)
+      if ('isComposing' in e) bits.push('composing=' + e.isComposing)
+      bits.push('cancelable=' + e.cancelable)
+      return bits.join(' ')
+    }
+
+    var EVENTS = [
+      'focus', 'blur', 'keydown', 'keyup', 'beforeinput', 'input',
+      'compositionstart', 'compositionupdate', 'compositionend',
+    ]
+
+    function instrument(input, name) {
+      EVENTS.forEach(function (type) {
+        input.addEventListener(type, function (e) {
+          var level = 'dim'
+          if (type === 'beforeinput' || type === 'input') level = 'ok'
+          if (type.indexOf('composition') === 0) level = 'warn'
+          log(name + ' ' + type.padEnd(17) + describe(e), level)
+        })
+      })
+      // Mirror the game: swallow the edit and keep the sentinel in place.
+      input.addEventListener('beforeinput', function (e) {
+        if (e.cancelable) e.preventDefault()
+      })
+      input.addEventListener('input', function () {
+        if (input.value !== SENTINEL) input.value = SENTINEL
+      })
+    }
+
+    var VARIANTS = [
+      { id: 'A', input: 'inA', btn: 'btnA', out: 'vA' },
+      { id: 'B', input: 'inB', btn: 'btnB', out: 'vB' },
+      { id: 'C', input: 'inC', btn: 'btnC', out: 'vC' },
+      { id: 'D', input: 'inD', btn: 'btnD', out: 'vD' },
+    ]
+
+    VARIANTS.forEach(function (v) {
+      var input = document.getElementById(v.input)
+      var out = document.getElementById(v.out)
+      instrument(input, 'IN-' + v.id)
+
+      document.getElementById(v.btn).addEventListener('click', function () {
+        var before = vvHeight()
+        log('--- focusing variant ' + v.id + ' ---', 'ok')
+
+        // Synchronous inside the tap handler: iOS ignores a deferred focus.
+        try {
+          input.focus({ preventScroll: true })
+        } catch (err) {
+          log('variant ' + v.id + ': focus() threw ' + err, 'warn')
+        }
+        try {
+          if (input.value !== SENTINEL && v.id !== 'D') input.value = SENTINEL
+          input.setSelectionRange(input.value.length, input.value.length)
+        } catch (err) {
+          log('variant ' + v.id + ': setSelectionRange threw ' + err, 'warn')
+        }
+
+        var took = document.activeElement === input
+        log('variant ' + v.id + ': activeElement is ' + (took ? 'the field' : 'NOT the field'), took ? 'ok' : 'warn')
+
+        // The keyboard animates in, so judge after it has had time to appear.
+        setTimeout(function () {
+          var after = vvHeight()
+          var shrank = before - after > 150
+          var verdict, cls
+          if (!took) {
+            verdict = 'focus refused'
+            cls = 'v-none'
+          } else if (shrank) {
+            verdict = 'focus ok · keyboard opened (' + Math.round(before - after) + 'px)'
+            cls = 'v-ok'
+          } else {
+            verdict = 'focus ok · keyboard did NOT open'
+            cls = 'v-partial'
+          }
+          out.textContent = verdict
+          out.className = 'verdict ' + cls
+          log('variant ' + v.id + ' verdict: ' + verdict, cls === 'v-ok' ? 'ok' : 'warn')
+        }, 1400)
+      })
+    })
+
+    /* ---- log export ------------------------------------------------------ */
+    var dump = document.getElementById('dump')
+
+    document.getElementById('btnCopy').addEventListener('click', function () {
+      var text =
+        navigator.userAgent + '\n' +
+        'coarse=' + coarse + ' visualViewport=' + hasVV + ' dpr=' + window.devicePixelRatio + '\n' +
+        '----\n' + lines.join('\n')
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+          function () {
+            log('log copied to clipboard', 'ok')
+          },
+          function () {
+            showDump(text)
+          }
+        )
+      } else {
+        showDump(text)
+      }
+    })
+
+    function showDump(text) {
+      dump.style.display = 'block'
+      dump.value = text
+      dump.focus()
+      dump.select()
+      log('clipboard unavailable — select the text box above and copy manually', 'warn')
+    }
+
+    document.getElementById('btnClear').addEventListener('click', function () {
+      lines = []
+      logEl.innerHTML = ''
+      dump.style.display = 'none'
+      log('cleared', 'dim')
+    })
+  })()
+</script>
+
+</body>
+</html>
