@@ -20,6 +20,11 @@
  * (--blink-settings=availablePointerTypes=2,primaryPointerType=2) or the app
  * correctly decides it is on a desktop and never renders the hidden input.
  *
+ * Typing is simulated the way a browser actually performs it: set the field's
+ * value, then dispatch the event the keyboard would have produced. The Gboard
+ * case wraps that in composition events, which is what broke the previous
+ * inputType-based implementation on a real device.
+ *
  * Shrinking the iframe stands in for the native keyboard claiming the bottom of
  * the screen. Chrome updates the frame's visualViewport.height but fires no
  * resize event for an iframe resized by its parent, so the test dispatches the
@@ -38,15 +43,12 @@ function check(label, ok, detail) {
   lines.push(`   ${ok ? '[ok]  ' : '[FAIL]'} ${label}${detail ? ' — ' + detail : ''}`)
   out.innerHTML = render()
 }
-
 function section(t) { lines.push(t); out.innerHTML = render() }
 
-const q = (doc, sel) => doc.querySelector(sel)
-const strip = (doc) => q(doc, '[role="group"][aria-label="Letter status"]')
-const fullKeyboard = (doc) => q(doc, 'button[aria-label="Q"]')
-const hiddenInput = (doc) => q(doc, 'input[enterkeyhint="go"]')
+const strip = (doc) => doc.querySelector('[role="group"][aria-label="Letter status"]')
+const fullKeyboard = (doc) => doc.querySelector('button[aria-label="Q"]')
+const hiddenInput = (doc) => doc.querySelector('input[enterkeyhint="go"]')
 
-// Letters currently shown in the active board row.
 function rowText(doc, row) {
   const tiles = doc.querySelectorAll('[data-tile]')
   let s = ''
@@ -54,16 +56,25 @@ function rowText(doc, row) {
   return s
 }
 
-function fireBeforeInput(el, inputType, data) {
-  el.dispatchEvent(new el.ownerDocument.defaultView.InputEvent('beforeinput', {
-    inputType, data: data ?? null, bubbles: true, cancelable: true,
-  }))
+/** Type as a browser does: mutate the value, then announce it. */
+function typeRaw(win, el, value) {
+  el.value = value
+  el.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertText' }))
 }
 
-function fireKeydown(el, key) {
-  el.dispatchEvent(new el.ownerDocument.defaultView.KeyboardEvent('keydown', {
-    key, bubbles: true, cancelable: true,
-  }))
+/** Gboard: every letter arrives inside one composition. */
+async function typeComposed(win, el, text) {
+  el.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }))
+  let acc = el.value
+  for (const ch of text) {
+    acc += ch
+    el.dispatchEvent(new win.CompositionEvent('compositionupdate', { bubbles: true, data: ch }))
+    el.value = acc
+    el.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', data: ch }))
+    await sleep(20)
+  }
+  el.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true, data: text }))
+  await sleep(60)
 }
 
 async function waitForApp(doc, timeout = 25000) {
@@ -83,6 +94,7 @@ async function waitForApp(doc, timeout = 25000) {
   frames.appendChild(f)
   await new Promise((r) => { f.onload = r; setTimeout(r, 25000) })
   const doc = f.contentDocument
+  const win = f.contentWindow
   if (!(await waitForApp(doc))) {
     lines.push('[FAIL] app never mounted'); failures++
     out.innerHTML = render(); document.title = '1 FAILURES'; return
@@ -94,34 +106,69 @@ async function waitForApp(doc, timeout = 25000) {
   check('full on-screen keyboard is shown by default', !!fullKeyboard(doc))
   check('status strip is hidden by default', !strip(doc))
 
-  section('typing through the native keyboard bridge')
   const input = hiddenInput(doc)
-  if (input) {
-    input.focus()
-    fireBeforeInput(input, 'insertText', 'c')
-    fireBeforeInput(input, 'insertText', 'r')
-    fireBeforeInput(input, 'insertText', 'a')
-    await sleep(150)
-    check('insertText fills the row', rowText(doc, 0) === 'CRA', `row = "${rowText(doc, 0)}"`)
+  if (!input) {
+    lines.push('')
+    lines.push('RESULT: ' + failures + ' FAILURE(S)')
+    out.innerHTML = render(); document.title = failures + ' FAILURES'; return
+  }
+  input.focus()
 
-    // A keyboard that reports a real key fires BOTH keydown and beforeinput for
-    // one press — the bug that shipped twice was this deleting two letters.
-    fireKeydown(input, 'Backspace')
-    fireBeforeInput(input, 'deleteContentBackward')
-    await sleep(150)
-    check('keydown+beforeinput backspace deletes exactly one', rowText(doc, 0) === 'CR', `row = "${rowText(doc, 0)}"`)
+  // The bug this whole change exists for: Gboard reports insertCompositionText,
+  // which the previous implementation ignored, so nothing reached the board.
+  section('Gboard — letters arrive inside a composition')
+  await typeComposed(win, input, 'CRA')
+  check('composed letters reach the board', rowText(doc, 0) === 'CRA', `row = "${rowText(doc, 0)}"`)
 
-    // An IME-only keyboard sends beforeinput with no usable keydown.
-    fireBeforeInput(input, 'deleteContentBackward')
-    await sleep(150)
-    check('beforeinput-only backspace still deletes one', rowText(doc, 0) === 'C', `row = "${rowText(doc, 0)}"`)
+  section('iOS — letters arrive as plain edits')
+  typeRaw(win, input, '')
+  await sleep(60)
+  check('clearing the field clears the row', rowText(doc, 0) === '', `row = "${rowText(doc, 0)}"`)
+  typeRaw(win, input, 'C'); await sleep(40)
+  typeRaw(win, input, 'CR'); await sleep(40)
+  typeRaw(win, input, 'CRAN'); await sleep(60)
+  check('plain edits reach the board', rowText(doc, 0) === 'CRAN', `row = "${rowText(doc, 0)}"`)
 
-    check('input keeps its sentinel value', input.value.length > 0, `value length = ${input.value.length}`)
+  section('backspace needs no special handling')
+  typeRaw(win, input, 'CRA'); await sleep(60)
+  check('shrinking the field shrinks the row', rowText(doc, 0) === 'CRA', `row = "${rowText(doc, 0)}"`)
+  typeRaw(win, input, ''); await sleep(60)
+  check('deleting everything empties the row', rowText(doc, 0) === '', `row = "${rowText(doc, 0)}"`)
+  typeRaw(win, input, ''); await sleep(60)
+  check('backspace on an empty row is harmless', rowText(doc, 0) === '', `row = "${rowText(doc, 0)}"`)
+
+  section('input is sanitised')
+  typeRaw(win, input, 'c1r a2n'); await sleep(60)
+  check('digits and spaces are dropped, case normalised', rowText(doc, 0) === 'CRAN', `row = "${rowText(doc, 0)}"`)
+  typeRaw(win, input, 'ABCDEFGH'); await sleep(60)
+  check('row never exceeds five letters', rowText(doc, 0) === 'ABCDE', `row = "${rowText(doc, 0)}"`)
+  check('field is trimmed back to the row', input.value === 'ABCDE', `value = "${input.value}"`)
+
+  section('the two keyboards stay in step')
+  typeRaw(win, input, ''); await sleep(60)
+  const qKey = fullKeyboard(doc)
+  qKey.click(); await sleep(80)
+  qKey.click(); await sleep(80)
+  check('on-screen keys reach the board', rowText(doc, 0) === 'QQ', `row = "${rowText(doc, 0)}"`)
+  check('hidden field follows the on-screen keyboard', input.value === 'QQ', `value = "${input.value}"`)
+
+  const revealBtn = [...doc.querySelectorAll('button')].find((b) => /Reveal/i.test(b.textContent))
+  if (revealBtn) {
+    revealBtn.click(); await sleep(120)
+    check('hidden field follows a hint', input.value === rowText(doc, 0), `value = "${input.value}" row = "${rowText(doc, 0)}"`)
   }
 
+  section('the go key submits')
+  typeRaw(win, input, 'AB'); await sleep(60)
+  input.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  await sleep(300)
+  const toast = doc.querySelector('.toast-fade')
+  check('Enter with a short word is rejected, not swallowed', !!toast, toast ? `toast "${toast.textContent.trim()}"` : 'no toast shown')
+
   section('native keyboard opens (viewport shrinks to ' + SHORT + 'px)')
+  typeRaw(win, input, ''); await sleep(60)
   f.style.height = SHORT + 'px'
-  f.contentWindow.visualViewport.dispatchEvent(new Event('resize'))
+  win.visualViewport.dispatchEvent(new Event('resize'))
   await sleep(700)
   check('status strip replaces the on-screen keyboard', !!strip(doc) && !fullKeyboard(doc),
     `strip=${!!strip(doc)} fullKeyboard=${!!fullKeyboard(doc)}`)
@@ -140,13 +187,9 @@ async function waitForApp(doc, timeout = 25000) {
   }
   check('all 30 tiles still fully visible', !clipped, clipped ? `clipped by ${clipped.toFixed(1)}px` : '30 tiles')
 
-  const t0 = doc.querySelector('[data-tile]').getBoundingClientRect()
-  check('tiles stay square while keyboard is open', Math.abs(t0.width / t0.height - 1) < 0.06,
-    `${t0.width.toFixed(1)}x${t0.height.toFixed(1)}`)
-
   section('native keyboard closes (viewport restored)')
   f.style.height = TALL + 'px'
-  f.contentWindow.visualViewport.dispatchEvent(new Event('resize'))
+  win.visualViewport.dispatchEvent(new Event('resize'))
   await sleep(700)
   check('on-screen keyboard comes back', !!fullKeyboard(doc) && !strip(doc),
     `strip=${!!strip(doc)} fullKeyboard=${!!fullKeyboard(doc)}`)

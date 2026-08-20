@@ -12,8 +12,9 @@ Then open (or screenshot) these pages:
 | Page | What it checks |
 | --- | --- |
 | `test/mobile-layout.html` | No scroll on either axis, and every key / tile fully inside the viewport, across 8 phone viewports incl. landscape. Also asserts tiles stay square. |
-| `test/native-keyboard.html` | The phone-keyboard bridge: letters arrive, backspace deletes exactly once whether the IME reports a real key or not, and the on-screen keyboard swaps to the compact status strip when the native keyboard takes the bottom of the screen. |
+| `test/native-keyboard.html` | The phone-keyboard bridge: letters arrive whether the IME wraps them in a composition (Gboard) or not (iOS), backspace and sanitising work, the two keyboards stay in step, and the on-screen keyboard swaps to the compact status strip when the native keyboard takes the bottom of the screen. |
 | `test/visual.html` | Side-by-side render of the app at several viewports, including one with the native keyboard simulated. For eyeballing / screenshots. |
+| `test/probe-selftest.html` | Checks the temporary on-device probe at `public/keyboard-probe.html`. Both get deleted together once the phone keyboard is confirmed working. |
 
 `native-keyboard.html` and the last panel of `visual.html` need a coarse pointer
 emulated, otherwise the app correctly decides it is on a desktop:

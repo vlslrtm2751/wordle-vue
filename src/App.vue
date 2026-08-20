@@ -81,16 +81,16 @@
     </main>
 
     <!--
-      Hidden field that summons the phone native keyboard (focused by tapping the
-      board). It stays inside the visual viewport and non-interactive: an
-      off-screen input makes iOS Safari scroll the page hunting for it, and 16px
-      text stops iOS from zooming in on focus.
+      Hidden field that summons the phone's own keyboard (focused by tapping the
+      board) and then holds the guess, so the row can mirror it. It stays inside
+      the visual viewport and non-interactive: an off-screen input makes iOS
+      Safari scroll the page hunting for it, and 16px text stops iOS zooming in
+      on focus.
     -->
     <input
       v-if="isMobile"
-      ref="mobileInputRef"
+      ref="nativeInputRef"
       type="text"
-      :value="INPUT_SENTINEL"
       class="pointer-events-none fixed left-1/2 top-1/2 h-px w-px border-0 bg-transparent p-0 text-[16px] opacity-0"
       autocomplete="off"
       autocorrect="off"
@@ -98,12 +98,12 @@
       spellcheck="false"
       inputmode="text"
       enterkeyhint="go"
-      aria-hidden="true"
       tabindex="-1"
-      @beforeinput="handleMobileBeforeInput"
-      @focus="restoreSentinel"
-      @input="restoreSentinel"
-      @keydown.stop="handleMobileKeydown"
+      @input="native.onInput"
+      @beforeinput="native.onBeforeInput"
+      @compositionstart="native.onCompositionStart"
+      @compositionend="native.onCompositionEnd"
+      @keydown.stop="native.onKeydown"
     />
 
     <ToastMessage :message="store.toastMessage" />
@@ -127,6 +127,7 @@ import { useI18n } from './composables/useI18n'
 import { useTheme } from './composables/useTheme'
 import { useMobile } from './composables/useMobile'
 import { useVirtualKeyboard } from './composables/useVirtualKeyboard'
+import { useNativeKeyboard } from './composables/useNativeKeyboard'
 
 const store = useGameStore()
 const wordle = useWordle()
@@ -141,7 +142,8 @@ const { keyboardOpen, appHeight } = useVirtualKeyboard()
 // Only mobile gets the swap: a desktop window resize must never hide the keys.
 const nativeKeyboardOpen = computed(() => isMobile.value && keyboardOpen.value)
 
-const mobileInputRef = ref<HTMLInputElement | null>(null)
+const native = useNativeKeyboard()
+const nativeInputRef = native.inputRef
 
 useKeyboard()
 
@@ -150,74 +152,12 @@ onMounted(async () => {
   initialized.value = true
 })
 
-/*
- * Native mobile keyboard bridge.
- *
- * The field never holds the typed text, so instead of sitting empty it keeps a
- * sentinel value: several Android IMEs emit no event at all when backspace is
- * pressed on an already-empty field.
- */
-const INPUT_SENTINEL = '    '
-
-// Keyboards that report a real key arrive in keydown; IME-only keyboards report
-// keyCode 229 and only surface in beforeinput. These timestamps let the
-// beforeinput path tell "the keydown already handled this press" apart from "no
-// keydown ever came" — conflating the two is what caused the double-delete.
-let lastKeydownDeleteAt = Number.NEGATIVE_INFINITY
-let lastKeydownEnterAt = Number.NEGATIVE_INFINITY
-const SAME_PRESS_MS = 100
-
-const canPlay = () => store.gameStatus === 'playing' && !store.isRevealing
-
-function restoreSentinel() {
-  const el = mobileInputRef.value
-  if (!el) return
-  if (el.value !== INPUT_SENTINEL) el.value = INPUT_SENTINEL
-  // The caret has to stay at the end or a backspace reads as a no-op.
-  const end = INPUT_SENTINEL.length
-  el.setSelectionRange(end, end)
-}
-
-function focusMobileInput() {
-  const el = mobileInputRef.value
-  if (!el) return
-  el.focus({ preventScroll: true })
-  restoreSentinel()
-}
-
-// Tapping the board opens the phone keyboard; tapping again dismisses it and
-// brings the on-screen keyboard back, so neither input mode is a dead end.
 function toggleNativeKeyboard() {
   if (!isMobile.value) return
-  if (nativeKeyboardOpen.value) mobileInputRef.value?.blur()
-  else focusMobileInput()
-}
-
-function handleMobileBeforeInput(e: InputEvent) {
-  if (e.cancelable) e.preventDefault()
-  if (!canPlay()) return
-
-  const type = e.inputType
-  if (type === 'insertText' || type === 'insertReplacementText') {
-    const char = (e.data || '').slice(-1).toUpperCase()
-    if (/^[A-Z]$/.test(char)) wordle.addLetter(char)
-  } else if (type === 'deleteContentBackward') {
-    if (e.timeStamp - lastKeydownDeleteAt > SAME_PRESS_MS) wordle.deleteLetter()
-  } else if (type === 'insertLineBreak' || type === 'insertParagraph') {
-    if (e.timeStamp - lastKeydownEnterAt > SAME_PRESS_MS) wordle.submitGuess()
-  }
-}
-
-function handleMobileKeydown(e: KeyboardEvent) {
-  if (e.key === 'Backspace') {
-    e.preventDefault()
-    lastKeydownDeleteAt = e.timeStamp
-    if (canPlay()) wordle.deleteLetter()
-  } else if (e.key === 'Enter') {
-    e.preventDefault()
-    lastKeydownEnterAt = e.timeStamp
-    if (canPlay()) wordle.submitGuess()
-  }
+  // Tapping the board opens the phone keyboard; tapping again dismisses it and
+  // brings the on-screen keyboard back, so neither input mode is a dead end.
+  if (nativeKeyboardOpen.value) native.blur()
+  else native.focus()
 }
 
 function handleKeyPress(key: string) {

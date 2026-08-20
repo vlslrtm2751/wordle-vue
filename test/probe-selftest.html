@@ -1,0 +1,58 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>probe selftest</title>
+<style>body{font:13px ui-monospace,monospace;padding:10px;white-space:pre}
+.p{color:#0a7d28}.f{color:#c00;font-weight:700}iframe{opacity:.3;width:390px;height:700px}</style>
+</head><body><div id="out">running…</div><div id="h"></div>
+<script>
+const out=document.getElementById('out'); const L=[]; let bad=0;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function ck(n,ok,d){ if(!ok)bad++; L.push(`${ok?'[ok]  ':'[FAIL]'} ${n}${d?' — '+d:''}`); out.innerHTML=L.map(x=>`<span class="${x.includes('FAIL')?'f':'p'}">${x}</span>`).join('\n'); }
+(async()=>{
+  const f=document.createElement('iframe'); f.src='/wordle-vue/keyboard-probe.html';
+  document.getElementById('h').appendChild(f);
+  await new Promise(r=>{f.onload=r;setTimeout(r,15000)});
+  await sleep(800);
+  const d=f.contentDocument, w=f.contentWindow;
+  const s1=d.getElementById('s1'), s2=d.getElementById('s2');
+  const board=id=>[...d.querySelectorAll('#'+id+' .cell')].map(c=>c.textContent).join('');
+
+  ck('page mounted', !!s1 && !!s2);
+  ck('S2 starts padded', s2.value.length===4, JSON.stringify(s2.value));
+
+  // --- strategy 1: simulate an inputType-reporting keyboard
+  const bi=(el,type,data)=>el.dispatchEvent(new w.InputEvent('beforeinput',{inputType:type,data:data??null,bubbles:true,cancelable:true}));
+  bi(s1,'insertText','a'); bi(s1,'insertText','b'); bi(s1,'insertText','c');
+  await sleep(100);
+  ck('S1 captures insertText', board('b1')==='ABC'+'', `board="${board('b1')}"`);
+  bi(s1,'deleteContentBackward');
+  await sleep(100);
+  ck('S1 captures backspace', board('b1')==='AB', `board="${board('b1')}"`);
+
+  // --- strategy 2: simulate an IME that reports NOTHING useful, only a value change
+  const typeInto=(el,val)=>{ el.value=val; el.dispatchEvent(new w.Event('input',{bubbles:true})); };
+  typeInto(s2, s2.value+'a'); await sleep(60);
+  ck('S2 captures a letter from value change', board('b2')==='A', `board="${board('b2')}"`);
+  typeInto(s2, s2.value+'b'); await sleep(60);
+  typeInto(s2, s2.value+'c'); await sleep(60);
+  ck('S2 captures three letters', board('b2')==='ABC', `board="${board('b2')}"`);
+  ck('S2 re-pads after each harvest', s2.value.length===4, JSON.stringify(s2.value));
+
+  // backspace = one real pad character eaten (the pad is NBSP, not a space)
+  const NB = ' ';
+  typeInto(s2, NB.repeat(3)); await sleep(60);
+  ck('S2 captures backspace', board('b2')==='AB', `board="${board('b2')}"`);
+
+  // multi-char paste / swipe-typed word arriving at once
+  typeInto(s2, s2.value+'xy'); await sleep(60);
+  ck('S2 captures a multi-char burst', board('b2')==='ABXY', `board="${board('b2')}"`);
+
+  // composition: input during composition must be ignored until compositionend
+  s2.dispatchEvent(new w.CompositionEvent('compositionstart',{bubbles:true}));
+  typeInto(s2, s2.value+'z'); await sleep(60);
+  ck('S2 ignores input while composing', board('b2')==='ABXY', `board="${board('b2')}"`);
+  s2.dispatchEvent(new w.CompositionEvent('compositionend',{bubbles:true,data:'z'})); await sleep(60);
+  ck('S2 harvests on compositionend', board('b2')==='ABXYZ', `board="${board('b2')}"`);
+
+  L.push(''); L.push(bad===0?'RESULT: ALL PASS':`RESULT: ${bad} FAILURE(S)`);
+  out.innerHTML=L.map(x=>`<span class="${x.includes('FAIL')?'f':'p'}">${x}</span>`).join('\n');
+})();
+</script></body></html>
